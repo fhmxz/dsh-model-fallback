@@ -112,13 +112,15 @@ provider id 与模型 id 在同一个 profile 文件的 `dsh-llm-pi-ai`（或对
 3. 在 profile 目录里跑 `pnpm install`。
 4. 在插件页确认 `dsh-model-fallback` 已启用，然后**重启 DSH**。模块代码的改动必须重启才生效，热重载只对配置生效。
 
-### 从 npm 安装
+### 从 GitHub 安装
+
+本仓库没有发布到 npm（`dsh-model-fallback` 这个 npm 名字属于别人，直接 `plugin add dsh-model-fallback` 会装到另一个插件）。用 GitHub 地址装：
 
 ```bash
-dsh --profile <profile> plugin add dsh-model-fallback
+dsh --profile <profile> plugin add github:fhmxz/dsh-model-fallback#v1.0.0
 ```
 
-装完同样要重启。
+或者把仓库克隆下来，按上一节「作为本地目录安装」的做法用 `link:` 挂上去。装完同样要重启。
 
 ## 注意
 
