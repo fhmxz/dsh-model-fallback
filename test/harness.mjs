@@ -389,6 +389,35 @@ test("中间全冷却 + 链尾兜底成功 -> 只走链尾，并留提示与跳�
 	}
 });
 
+test("单次请求卡住 -> 到点放掉，换下一条", async () => {
+	const h = makeCtx({
+		"p0/m0": async function* () { await new Promise(() => {}); },
+		"p1/m1": async function* () { yield blockStart(0); yield text(0, "换过来了"); yield blockEnd(0, "换过来了"); yield ok; },
+	}, { ...baseConfig, attemptMs: 30 });
+	const out = await h.drive(request("p0", "m0"));
+	assert.deepEqual(h.calls, ["p0/m0", "p1/m1"]);
+	const notice = noticeOf(out);
+	assert.equal(notice.length, 1);
+	assert.match(notice[0].text, /TIMEOUT/);
+	assert.ok(out.some((c) => c.type === "text-delta" && c.text === "换过来了"), "备用线路的正文要到");
+});
+
+test("整条链的总时限用完 -> 不再往后试，报错里写着总时限", async () => {
+	const hang = async function* () { await new Promise(() => {}); };
+	const h = makeCtx({
+		"p0/m0": hang,
+		"p1/m1": hang,
+		"p2/m2": hang,
+		"p3/m3": hang,
+		"p4/m4": hang,
+	}, { ...baseConfig, attemptMs: 1_000, budgetMs: 40 });
+	const out = await h.drive(request("p0", "m0"));
+	assert.ok(h.calls.length >= 1, "至少要试过链首");
+	assert.ok(h.calls.length < 5, "预算用完了就不再往后试");
+	assert.equal(out.at(-1).reason.failure.code, "TIMEOUT");
+	assert.match(out.at(-1).reason.failure.message, /按顺序试过/);
+});
+
 let failed = 0;
 for (const { title, fn } of cases) {
 	try {

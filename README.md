@@ -44,6 +44,8 @@ DSH 在 step 准备阶段就把模型固定下来了（`dsh-agent-loop` 里 `pre
 config:
   enabled: true          # 总开关，false 时完全不介入
   cooldownMs: 1800000    # 失败后跳过多久（毫秒），0 表示不跳过
+  attemptMs: 120000      # 单次请求最多等多久（毫秒），0 表示不限
+  budgetMs: 300000       # 整条链一共最多用多久（毫秒），0 表示不限
   notice: true           # 是否在回复开头留提示行
   on:                    # 只有这些错误码才换线
     - QUOTA_EXCEEDED
@@ -77,7 +79,7 @@ config:
 
 DSH 的补丁是「同 id 后写的覆盖先写的」，且 `config` 是整块替换。所以：
 
-- 只写想改的字段就行，没写的走默认值：`enabled` 默认 `true`，`cooldownMs` 默认 `1800000`，`notice` 默认 `true`，`on` 默认上面那 14 个错误码。
+- 只写想改的字段就行，没写的走默认值：`enabled` 默认 `true`，`cooldownMs` 默认 `1800000`，`attemptMs` 默认 `120000`，`budgetMs` 默认 `300000`，`notice` 默认 `true`，`on` 默认上面那 14 个错误码。
 - **`chain` 必须整条重写**，它不会和包里的示例链合并。
 - 保存后一般会热生效；如果下一个请求还是没变化，重启一次 DSH。
 
@@ -131,6 +133,7 @@ dsh --profile <profile> plugin add github:fhmxz/dsh-model-fallback#v1.0.0
 - 全部线路都没试成功时，报错文本末尾会补一行「按顺序试过 A → B → C」，原来的错误码不变。
 - 手选的模型失败不会进冷却表，等你切回链首，链子还是照常先试链首。
 - 链尾那条兜底线路永远不进冷却。它要是也挂了，每一轮都会多试它一次，这是故意的。
+- 超时按失败处理：单条线路超过 `attemptMs` 没有任何回应就放掉换线，并记 `TIMEOUT` 冷却；整条链超过 `budgetMs` 就直接报错，不再往后试。
 
 ## 测试
 
@@ -138,7 +141,7 @@ dsh --profile <profile> plugin add github:fhmxz/dsh-model-fallback#v1.0.0
 node test/harness.mjs
 ```
 
-19 项用例，覆盖换线、半截不换、手选不介入、冷却过期与递进跳过、链尾兜底不被冷却、降档重试、全挂报错、delta-only 与先推理后正文等流形态。测试用桩 ctx 模拟 `llm/stream` 瀑布，不连真实模型。
+21 项用例，覆盖换线、半截不换、手选不介入、冷却过期与递进跳过、链尾兜底不被冷却、单次超时换线、总时限收手、降档重试、全挂报错、delta-only 与先推理后正文等流形态。测试用桩 ctx 模拟 `llm/stream` 瀑布，不连真实模型。
 
 ## License
 
