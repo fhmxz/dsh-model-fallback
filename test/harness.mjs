@@ -338,6 +338,57 @@ test("提示不会被 usage 和空 delta 打乱", async () => {
 	assert.equal(notice[0].index, 1);
 });
 
+test("链尾是兜底线路 -> 永不进冷却，中间全冷却时只剩它可试", async () => {
+	let clock = 1_000;
+	const realNow = Date.now;
+	Date.now = () => clock;
+	try {
+		const h = makeCtx({
+			"p0/m0": async function* () { yield boom("SERVER"); },
+			"p1/m1": async function* () { yield boom("SERVER"); },
+			"p2/m2": async function* () { yield boom("SERVER"); },
+			"p3/m3": async function* () { yield boom("SERVER"); },
+			"p4/m4": async function* () { yield boom("SERVER"); },
+		}, { ...baseConfig, cooldownMs: 1_000 });
+		await h.drive(request("p0", "m0"));
+		assert.deepEqual(h.calls, ["p0/m0", "p1/m1", "p2/m2", "p3/m3", "p4/m4"]);
+		h.calls.length = 0;
+		const out = await h.drive(request("p0", "m0"));
+		assert.deepEqual(h.calls, ["p4/m4"], "中间四条都在冷却，链尾照样能试");
+		assert.match(out.at(-1).reason.failure.message, /按顺序试过 线路4/);
+		assert.equal(out.at(-1).reason.failure.code, "SERVER", "错误码不能被改写");
+	} finally {
+		Date.now = realNow;
+	}
+});
+
+test("中间全冷却 + 链尾兜底成功 -> 只走链尾，并留提示与跳过说明", async () => {
+	let clock = 1_000;
+	const realNow = Date.now;
+	Date.now = () => clock;
+	try {
+		const h = makeCtx({
+			"p0/m0": async function* () { yield boom("SERVER"); },
+			"p1/m1": async function* () { yield boom("SERVER"); },
+			"p2/m2": async function* () { yield boom("SERVER"); },
+			"p3/m3": async function* () { yield boom("SERVER"); },
+			"p4/m4": async function* () { yield blockStart(0); yield text(0, "兜底答的"); yield blockEnd(0, "兜底答的"); yield ok; },
+		}, { ...baseConfig, cooldownMs: 1_000 });
+		await h.drive(request("p0", "m0"));
+		assert.deepEqual(h.calls, ["p0/m0", "p1/m1", "p2/m2", "p3/m3", "p4/m4"]);
+		h.calls.length = 0;
+		const out = await h.drive(request("p0", "m0"));
+		assert.deepEqual(h.calls, ["p4/m4"], "冷却中的线路一条都不试");
+		const notice = noticeOf(out);
+		assert.equal(notice.length, 1);
+		assert.match(notice[0].text, /线路4/);
+		assert.match(notice[0].text, /还在冷却，先跳过/);
+		assert.equal(out.at(-1).reason.kind, "stop");
+	} finally {
+		Date.now = realNow;
+	}
+});
+
 let failed = 0;
 for (const { title, fn } of cases) {
 	try {
