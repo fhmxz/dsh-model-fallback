@@ -1,0 +1,44 @@
+# dsh-model-fallback 的装载补丁。
+# 只认 chain 的第一条当自动入口：请求走链首时，链首要是还没吐出任何内容就失败了，
+# 就按顺序换下一条重发同一次请求。手动选了别的模型时插件完全不介入。
+# 改顺序直接改下面的 chain，改完保存即可，不用重新安装。
+#
+# 下面 chain 里是占位符，装完请换成你自己 DSH 里真实存在的 provider id 与模型 id，
+# 否则请求永远不会命中链首，插件等于没开。
+- insert:
+    - id: model-fallback
+      name: 'dsh-model-fallback'
+      config:
+        # 总开关，false 时完全不介入，方便复现原始报错。
+        enabled: true
+        # 某条线路失败后，这段时间内跳过它（毫秒）。只存在内存里，重启即清空。
+        cooldownMs: 1800000
+        # 是否在回复开头留一行「自动换线」提示。
+        notice: true
+        # 只有这些错误码才换线。ABORTED（你按了停止）、上下文超长、图片不支持不在其中。
+        on:
+          - UNKNOWN_MODEL
+          - INVALID_REQUEST
+          - MISSING_CREDENTIAL
+          - INVALID_CREDENTIAL
+          - QUOTA_EXCEEDED
+          - MALFORMED_RESPONSE
+          - EMPTY_RESPONSE
+          - NO_ADAPTER
+          - UNSUPPORTED_REASONING_EFFORT
+          - RATE_LIMIT
+          - SERVER
+          - TIMEOUT
+          - LLM_STREAM_IDLE_TIMEOUT
+          - TRANSPORT
+        # 顺序表，从上往下试。第一条是自动入口。
+        chain:
+          - provider: your-provider-a
+            model: your-model-a
+            label: 主线路
+          - provider: your-provider-b
+            model: your-model-b
+            label: 备用线路
+          - provider: your-provider-c
+            model: your-model-c
+            label: 再备用

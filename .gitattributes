@@ -1,0 +1,2 @@
+# 统一用 LF 存进仓库，Windows 检出时也不转换，避免每次提交都报 CRLF 警告
+* text=auto eol=lf
