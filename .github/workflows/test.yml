@@ -12,5 +12,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: 装依赖
+        run: npm install --no-audit --no-fund
       - name: 跑测试
-        run: node test/harness.mjs
+        run: npm test

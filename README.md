@@ -141,7 +141,9 @@ dsh --profile <profile> plugin add github:fhmxz/dsh-model-fallback#v1.0.0
 node test/harness.mjs
 ```
 
-21 项用例，覆盖换线、半截不换、手选不介入、冷却过期与递进跳过、链尾兜底不被冷却、单次超时换线、总时限收手、降档重试、全挂报错、delta-only 与先推理后正文等流形态。测试用桩 ctx 模拟 `llm/stream` 瀑布，不连真实模型。
+先跑 `node test/patch.mjs`，它检查 `cordis.patch.yml` 的缩进结构，有 YAML 解析器时还会真解析一遍（没装就只做结构检查）。这一条是给改配置的人兜底的：缩进写错时 DSH 会直接跳过整个插件，日志里只说一句 bad indentation。
+
+然后是 21 项用例，覆盖换线、半截不换、手选不介入、冷却过期与递进跳过、链尾兜底不被冷却、单次超时换线、总时限收手、降档重试、全挂报错、delta-only 与先推理后正文等流形态。测试用桩 ctx 模拟 `llm/stream` 瀑布，不连真实模型。
 
 ## License
 
