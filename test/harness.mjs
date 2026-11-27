@@ -12,6 +12,9 @@ const chain = [
 const baseConfig = {
 	enabled: true,
 	cooldownMs: 1800000,
+	// 这些用例只关心「什么时候换线」，所以先把每条线限定成一次机会；
+	// 两次机会的默认行为由下面专门的用例覆盖。
+	attempts: 1,
 	notice: true,
 	on: ["QUOTA_EXCEEDED", "SERVER", "TIMEOUT", "UNSUPPORTED_REASONING_EFFORT", "MISSING_CREDENTIAL"],
 	chain,
@@ -416,6 +419,77 @@ test("整条链的总时限用完 -> 不再往后试，报错里写着总时限"
 	assert.ok(h.calls.length < 5, "预算用完了就不再往后试");
 	assert.equal(out.at(-1).reason.failure.code, "TIMEOUT");
 	assert.match(out.at(-1).reason.failure.message, /按顺序试过/);
+});
+
+test("默认每条线路两次机会 -> 第一次失败原地重试，第二次才往下走", async () => {
+	const { attempts: dropped, ...cfg } = baseConfig;
+	assert.equal(dropped, 1, "基线配置里确实写了 attempts: 1");
+	const h = makeCtx({
+		"p0/m0": async function* () { yield boom("SERVER"); },
+		"p1/m1": async function* () { yield blockStart(0); yield text(0, "第二次才过来"); yield blockEnd(0, "第二次才过来"); yield ok; },
+	}, cfg);
+	const out = await h.drive(request("p0", "m0"));
+	assert.deepEqual(h.calls, ["p0/m0", "p0/m0", "p1/m1"], "链首要连撞两次才换线");
+	const notice = noticeOf(out);
+	assert.equal(notice.length, 1, "换线提示只留一行");
+	assert.match(notice[0].text, /线路0 失败/);
+	assert.doesNotMatch(notice[0].text, /线路0 失败.*线路0 失败/, "第一次失败不该写进提示");
+	assert.equal(out.at(-1).reason.kind, "stop");
+	assert.ok(out.some((c) => c.type === "text-delta" && c.text === "第二次才过来"));
+});
+
+test("同一条线第二次成功 -> 停在原线路，不往下走", async () => {
+	const { attempts: dropped, ...cfg } = baseConfig;
+	let round = 0;
+	const h = makeCtx({
+		"p0/m0": async function* () {
+			round += 1;
+			if (round === 1) {
+				yield boom("RATE_LIMIT");
+				return;
+			}
+			yield blockStart(0); yield text(0, "缓过来啦"); yield blockEnd(0, "缓过来啦"); yield ok;
+		},
+		"p1/m1": async function* () { yield blockStart(0); yield text(0, "不该到这里"); yield ok; },
+	}, cfg);
+	const out = await h.drive(request("p0", "m0"));
+	assert.equal(dropped, 1);
+	assert.deepEqual(h.calls, ["p0/m0", "p0/m0"]);
+	assert.equal(noticeOf(out).length, 0, "没换线就不该有提示");
+	assert.ok(out.some((c) => c.type === "text-delta" && c.text === "缓过来啦"));
+});
+
+test("attempts 可配成 3 -> 连撞三次才换线", async () => {
+	const h = makeCtx({
+		"p0/m0": async function* () { yield boom("QUOTA_EXCEEDED"); },
+		"p1/m1": async function* () { yield blockStart(0); yield text(0, "第三条"); yield blockEnd(0, "第三条"); yield ok; },
+	}, { ...baseConfig, attempts: 3 });
+	const out = await h.drive(request("p0", "m0"));
+	assert.deepEqual(h.calls, ["p0/m0", "p0/m0", "p0/m0", "p1/m1"]);
+	assert.equal(out.at(-1).reason.kind, "stop");
+});
+
+test("两次机会都用完才进冷却 -> 冷却期内直接跳过这条", async () => {
+	const realNow = Date.now;
+	let clock = 1_000;
+	Date.now = () => clock;
+	try {
+		const { attempts: dropped, ...cfg } = baseConfig;
+		const h = makeCtx({
+			"p0/m0": async function* () { yield boom("SERVER"); },
+			"p1/m1": async function* () { yield blockStart(0); yield text(0, "线路1"); yield blockEnd(0, "线路1"); yield ok; },
+		}, { ...cfg, cooldownMs: 600_000 });
+		assert.equal(dropped, 1);
+		await h.drive(request("p0", "m0"));
+		assert.deepEqual(h.calls, ["p0/m0", "p0/m0", "p1/m1"]);
+		h.calls.length = 0;
+		clock = 1_000 + 600_000 + 1;
+		const out = await h.drive(request("p0", "m0"));
+		assert.deepEqual(h.calls, ["p0/m0", "p0/m0", "p1/m1"], "十分钟过了，回头再给链首两次机会");
+		assert.match(noticeOf(out)[0].text, /线路0 失败/);
+	} finally {
+		Date.now = realNow;
+	}
 });
 
 let failed = 0;
